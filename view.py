@@ -48,7 +48,7 @@ f_new_group = urwid.SimpleFocusListWalker([])
 p_members = urwid.Pile([])
 # Group buttons
 b_ready = urwid.Button("Mark as ready")
-b_invite = urwird.Button("Invite")
+b_invite = urwid.Button("Invite")
 b_leave = urwid.Button("Leave")
 
 # Screens
@@ -66,7 +66,7 @@ s_connected_home = urwid.LineBox(urwid.Pile([
 s_new_group = urwid.LineBox(urwid.BoxAdapter(urwid.ListBox(f_new_group), 10), "Select a game")
 
 s_in_group = urwid.Pile([
-    urwid.LineBox(p.members, "Group"),
+    urwid.LineBox(p_members, "Group"),
     urwid.Divider(),
     urwid.Columns([
         b_ready,

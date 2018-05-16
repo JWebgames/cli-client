@@ -22,16 +22,13 @@ def onlyone(func):
     async def wrapped(*args, **kwargs):
         global interface_locked
         if interface_locked:
-            print("\a")
             view.footer.set_text("Interface locked !")
             return
         interface_locked = True
-        try:
-            value = await func(*args, **kwargs)
-        except:
-            interface_locked = False
-            raise
+        view.footer.set_text("Interface locked.")
+        value = await func(*args, **kwargs)
         interface_locked = False
+        view.footer.set_text("Interface unlocked.")
         return value
     return wrapped
 
@@ -83,8 +80,6 @@ def on_quit_clicked(_button):
 
 @onlyone
 async def on_login_submited(login, password):
-    logger.debug("in on_login")
-    await asyncio.sleep(5)
     token = await model.connect(login, password)
     model.token = token
 

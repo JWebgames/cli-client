@@ -5,14 +5,35 @@ import atexit
 import urwid
 import json
 from base64 import urlsafe_b64decode
+from functools import wraps
 
 loop = asyncio.get_event_loop()
+loop.set_debug(True)
 
 import view
 import model
 
 logger = logging.getLogger(__name__)
 tasks = []
+
+interface_locked = False
+def onlyone(func):
+    @wraps(func)
+    async def wrapped(*args, **kwargs):
+        global interface_locked
+        if interface_locked:
+            print("\a")
+            view.footer.set_text("Interface locked !")
+            return
+        interface_locked = True
+        try:
+            value = await func(*args, **kwargs)
+        except:
+            interface_locked = False
+            raise
+        interface_locked = False
+        return value
+    return wrapped
 
 def main():
     register_events()
@@ -60,7 +81,10 @@ def change_screen_to(screen):
 def on_quit_clicked(_button):
     raise urwid.ExitMainLoop()
 
+@onlyone
 async def on_login_submited(login, password):
+    logger.debug("in on_login")
+    await asyncio.sleep(5)
     token = await model.connect(login, password)
     model.token = token
 
@@ -90,9 +114,11 @@ async def on_new_group_clicked():
     view.f_new_group.extend(choices)
     change_screen_to(view.s_new_group)
 
+@onlyone
 async def on_game_selected(gameid):
     model.groupid = await model.create_group(gameid)
 
+    model.p_members.content.append()
 
 @model.event_handler("user", "group", "invitation recieved")
 def invited(payload):
@@ -117,3 +143,7 @@ def group_user_is_not_ready(payload):
 @model.event_handler("user", "group", "queue joined")
 def group_queue_joined(payload):
     pass
+
+@model.event_handler("user", "server", "notice")
+def server_notice(notice):
+    logger.info("Notice from server: %s", notice)

@@ -1,9 +1,11 @@
 import aiohttp
+import aiohttp.client_exceptions
 import asyncio
 import atexit
 import json
 from collections import defaultdict
-from logging import getLogger, WARNING
+from logging import getLogger, INFO
+from functools import partial
 from operator import itemgetter, iand
 from urllib.parse import urljoin
 from contextlib import suppress
@@ -12,30 +14,34 @@ import tenacity
 
 import controller
 from config import APIURL
-from tools import async_tryexcept
+from tools import async_tryexcept, APIError, find
 import view
 
 logger = getLogger(__name__)
 http = aiohttp.ClientSession(loop=controller.loop)
 
-token = None
-userid = None
-groupid = None
-partyid = None
+class Container:
+    pass
+container = Container()
+container.token = None
+container.user = Container()
+container.group = Container()
+container.slot = Container()
+container.party = Container()
+container.games = None
 
-group = []
-
-def retry(func):
-    return tenacity.retry(
-        wait=tenacity.wait_random_exponential(multiplier=.5, max=60),
-        stop=tenacity.stop_after_attempt(10),
-        reraise=True)(func)
+retry = partial(tenacity.retry,
+                retry=tenacity.retry_if_exception_type(aiohttp.client_exceptions.ClientConnectorError),
+                wait=tenacity.wait_fixed(3) + tenacity.wait_random_exponential(max=7),
+                stop=tenacity.stop_after_attempt(10),
+                before=tenacity.before_log(logger, INFO),
+                reraise=True)
 
 def req(method, url, headers=None, *args, **kwargs):
     if headers is None:
         headers = {}
-    if token is not None:
-        headers["Authorization"] = "Bearer: %s" % token
+    if container.token is not None:
+        headers["Authorization"] = "Bearer: %s" % container.token
     return http.request(method, urljoin(APIURL, url), headers=headers, *args, **kwargs)
 
 async def handle_error(res):
@@ -51,11 +57,6 @@ async def handle_error(res):
             res.url, res.status, await res.text())
         raise APIError(res.status, res.reason)
 
-class APIError(Exception):
-    def __init__(self, status, reason):
-        super().__init__(status, reason)
-
-
 event_handlers = {
     "user": defaultdict(dict),
     "group": defaultdict(dict),
@@ -67,10 +68,10 @@ def event_handler(scope, categ, command):
         return func
     return register
 
-async def payload_getter(res):
+async def reader(res):
     buffer = b""
     while True:
-        chunk = await res.content.read(64)
+        chunk = await asyncio.wait_for(res.content.readany(), 65)
         if not chunk:
             break
         buffer += chunk
@@ -83,13 +84,15 @@ async def payload_getter(res):
             yield json.loads(raw_message)
 
 
-@async_tryexcept
-@retry
+@retry()
 async def msgqueue(scope):
     with suppress(asyncio.CancelledError):
-        async with req("get", "v1/msgqueues/%s" % scope) as res:
+        async with req("get", "v1/msgqueues/%s" % scope, timeout=None) as res:
             logger.info("Getting messages from scope %s", scope)
-            async for message in payload_getter(res):
+            async for message in reader(res):
+                if message["type"] == "heartbeat":
+                    continue
+
                 categ, cmd = message["type"].split(":")
 
                 callback = event_handlers[scope].get(categ, {}).get(cmd)
@@ -104,8 +107,9 @@ async def msgqueue(scope):
                 else:
                     callback(**message)
             logger.info("End of stream for scope %s", scope)
+            raise tenacity.TryAgain()
 
-@retry
+@retry()
 async def register(username, email, password):
     payload = {"username": username, "email": email, "password": password}
     async with req("post", "v1/auth/register", json=payload) as res:
@@ -115,10 +119,8 @@ async def register(username, email, password):
         json_body = await res.json()
         return json_body["userid"]
 
-@retry
+@retry()
 async def connect(login, password):
-    logger.debug("in connect")
-    await asyncio.sleep(5)
     payload = {"login": login, "password": password}
     async with req("post", "v1/auth", json=payload) as res:
         if res.status != 200:
@@ -127,27 +129,48 @@ async def connect(login, password):
         json_body = await res.json()
         return json_body["token"]
 
-@retry
+@retry()
 async def disconnect():
-    async with req("delete", "v1/auth") as res:
+    async with req("delete", "v1/auth/") as res:
         if res.status != 204:
             await handle_error(res)
 
-games = None
-@retry
+@retry()
 async def get_game_list():
-    global games
-    if games is None:
+    if container.games is None:
         async with req("get", "/v1/games") as res:
             if res.status != 200:
                 await handle_error(res)        
-            games = await res.json()
-    return games
+            container.games = await res.json()
+    return container.games
 
-@retry
+@retry()
 async def create_group(gameid):
-    async with req("post", "/create/%d" % gameid) as res:
+    async with req("post", "v1/groups/create/%d" % gameid) as res:
         if res.status != 200:
             await handle_error(res)
         json_body = await res.json()
         return json_body["groupid"]
+
+@retry()
+async def get_my_group():
+    async with req("get", "v1/groups/") as res:
+        if res.status == 404:
+            return None
+        if res.status != 200:
+            await handle_error(res)
+        json_body = await res.json()
+        return json_body
+
+@retry()
+async def get_game_by_id(gameid):
+    if container.games:
+        game = find(lambda game: game["gameid"] == gameid, container.games)
+        if game:
+            return game
+
+    async with req("get", "v1/games/byid/%d" % gameid) as res:
+        if res.status != 200:
+            await handle_error(res)
+        json_body = await res.json()
+        return json_body

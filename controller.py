@@ -4,6 +4,7 @@ import logging
 import atexit
 import urwid
 import json
+from itertools import chain
 from base64 import urlsafe_b64decode
 from functools import wraps
 
@@ -12,6 +13,7 @@ loop.set_debug(True)
 
 import view
 import model
+import dialog
 from tools import async_tryexcept
 import webapi.storage.models
 
@@ -41,8 +43,12 @@ def onlyone(func):
 
 def main():
     register_events()
+    view.main_loop = urwid.MainLoop(
+        view.interface,
+        palette=dialog.DialogDisplay.palette,
+        event_loop=urwid.AsyncioEventLoop(loop=loop))
     try:
-        urwid.MainLoop(view.interface, event_loop=urwid.AsyncioEventLoop(loop=loop)).run()
+        view.main_loop.run()
     except KeyboardInterrupt:
         pass
     except urwid.ExitMainLoop:
@@ -76,6 +82,20 @@ def register_events():
     urwid.connect_signal(view.sb_login, "click", form_handler(view.f_login, on_login_submited))
     urwid.connect_signal(view.b_new_group, "click", button_handler(on_new_group_clicked))
     urwid.connect_signal(view.b_group, "click", on_group_clicked)
+    urwid.connect_signal(view.b_invite, "click", button_handler(on_invite_clicked))
+    urwid.connect_signal(view.b_leave, "click", button_handler(on_leave_clicked))
+    urwid.connect_signal(view.b_ready, "click", button_handler(on_mark_as_ready_clicked))
+    urwid.connect_signal(view.b_start, "click", button_handler(on_start_clicked))
+    urwid.connect_signal(view.b_home, "click", button_handler(on_tmp_clicked))
+
+async def on_tmp_clicked():
+    games = await model.get_game_list()
+    logger.debug(games)
+    pairs = list(chain(*map(lambda game: (str(game["gameid"]), game["name"]), games)))
+    logger.debug(pairs)
+    dialog.do_menu("Select the game", 15, 30, 3, *pairs).call(lambda *args: logger.info(args))
+
+
 
 def change_navbar_to(navbar):
     view.body.contents[0] = (navbar, view.body.options())
@@ -93,6 +113,11 @@ def on_quit_clicked(_button):
 
 def on_group_clicked(_button):
     change_screen_to(view.s_in_group)
+
+@async_tryexcept
+@onlyone
+async def on_invite_clicked():
+    do_inputbox("Player to invite:", 5, 10)
 
 @async_tryexcept
 @onlyone
@@ -170,6 +195,21 @@ async def on_game_selected(gameid):
 
     change_navbar_to(view.n_in_group)
     change_screen_to(view.s_in_group)
+
+@async_tryexcept
+@onlyone
+async def on_leave_clicked():
+    raise NotImplementedError()
+
+@async_tryexcept
+@onlyone
+async def on_mark_as_ready_clicked():
+    raise NotImplementedError()
+
+@async_tryexcept
+@onlyone
+async def on_start_clicked():
+    raise NotImplementedError()
 
 @model.event_handler("user", "group", "invitation recieved")
 def invited(payload):

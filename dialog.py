@@ -97,7 +97,7 @@ class DialogDisplay:
             self.buttons ], focus_item = 1)
 
     def button_press(self, button):
-        raise DialogExit(button.exitcode)
+        self.fuck(button)
 
     def main(self):
         self.loop = urwid.MainLoop(self.view, self.palette, unhandled_input=lambda key: self.unhandled_key((0,0), key))
@@ -114,7 +114,15 @@ class DialogDisplay:
             callback(exitcode, exitstr)
         view.main_loop.widget = self.view
         view.main_loop.unhandled_input = lambda key: self.unhandled_key((0,0), key)
-        self.button_press = lambda button: rollback(*self.on_exit(button if type(button) is int else button.exitcode))
+
+        def func(button):
+            if type(button) is int:
+                rollback(*self.on_exit(button))
+            else:
+                rollback(*self.on_exit(button.exitcode))
+
+        self.button_press = func
+        self.fuck = func
 
     def on_exit(self, exitcode):
         return exitcode, ""

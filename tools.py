@@ -27,6 +27,17 @@ def async_tryexcept(func):
             raise
     return wrapped
 
+def tryexcept(func):
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            logger.exception("%s, see logs for details.", str(exc))
+            raise
+    return wrapped
+
+
 
 class UrwidHandler(Handler):
     def emit(self, record):

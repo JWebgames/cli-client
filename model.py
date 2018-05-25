@@ -85,6 +85,7 @@ async def reader(res):
 
 
 @retry()
+@async_tryexcept
 async def msgqueue(scope):
     with suppress(asyncio.CancelledError):
         async with req("get", "v1/msgqueues/%s" % scope, timeout=None) as res:
@@ -97,15 +98,17 @@ async def msgqueue(scope):
 
                 callback = event_handlers[scope].get(categ, {}).get(cmd)
                 if callback is None:
-                    logger.warning(
-                        "Cannot handle event type %s", message["type"])
+                    logger.warning("Cannot handle event type \"%s\" for queue %s",
+                                   message["type"], scope)
+                    continue
+                logger.debug("Event %s recieved !", message["type"])
                 view.footer.set_text("Event %s recieved !" % message["type"])
                 del message["type"]
 
                 if asyncio.iscoroutinefunction(callback):
-                    asyncio.ensure_future(callback(**message))
+                    asyncio.ensure_future(callback(message))
                 else:
-                    callback(**message)
+                    callback(message)
             logger.info("End of stream for scope %s", scope)
             raise tenacity.TryAgain()
 
@@ -174,3 +177,27 @@ async def get_game_by_id(gameid):
             await handle_error(res)
         json_body = await res.json()
         return json_body
+
+@retry()
+async def invite(name):
+    async with req("post", "v1/groups/invite/byname/%s" % name) as res:
+        if res.status != 204:
+            await handle_error(res)
+
+@retry()
+async def join_group(groupid):
+    async with req("post", "v1/groups/join/%s" % groupid) as res:
+        if res.status != 204:
+            await handle_error(res)
+
+@retry()
+async def mark_as_ready():
+    async with req("post", "v1/groups/ready") as res:
+        if res.status != 204:
+            await handle_error(res)
+
+@retry()
+async def mark_as_not_ready():
+    async with req("delete", "v1/groups/ready") as res:
+        if res.status != 204:
+            await handle_error(res)

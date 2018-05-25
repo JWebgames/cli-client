@@ -52,7 +52,7 @@ f_new_group = urwid.SimpleFocusListWalker([])
 # Group members
 p_members = urwid.Pile([])
 # Group buttons
-b_ready = urwid.Button("Mark as ready")
+b_ready = urwid.Button("Change readyness")
 b_invite = urwid.Button("Invite")
 b_leave = urwid.Button("Leave")
 b_start = urwid.Button("Start")

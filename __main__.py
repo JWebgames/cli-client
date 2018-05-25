@@ -4,8 +4,12 @@ import logging
 from controller import main
 from config import LOGLEVEL
 from tools import UrwidHandler
+import sys
 
-logfile = logging.FileHandler("client.log", mode="w")
+if len(sys.argv) > 1:
+    logfile = logging.FileHandler("client%s.log" % sys.argv[1], mode="w")
+else:
+    logfile = logging.FileHandler("client.log", mode="w")
 logfile.formatter = logging.Formatter(
     "{asctime} [{levelname}] <{name}:{funcName}> {message}", style="{")
 logfile.level = LOGLEVEL

@@ -14,7 +14,7 @@ loop.set_debug(True)
 import view
 import model
 import dialog
-from tools import async_tryexcept
+from tools import tryexcept, async_tryexcept, find
 import webapi.storage.models
 
 logger = logging.getLogger(__name__)
@@ -82,18 +82,14 @@ def register_events():
     urwid.connect_signal(view.sb_login, "click", form_handler(view.f_login, on_login_submited))
     urwid.connect_signal(view.b_new_group, "click", button_handler(on_new_group_clicked))
     urwid.connect_signal(view.b_group, "click", on_group_clicked)
-    urwid.connect_signal(view.b_invite, "click", button_handler(on_invite_clicked))
+    urwid.connect_signal(view.b_invite, "click", on_invite_clicked)
     urwid.connect_signal(view.b_leave, "click", button_handler(on_leave_clicked))
-    urwid.connect_signal(view.b_ready, "click", button_handler(on_mark_as_ready_clicked))
+    urwid.connect_signal(view.b_ready, "click", button_handler(on_ready_clicked))
     urwid.connect_signal(view.b_start, "click", button_handler(on_start_clicked))
     urwid.connect_signal(view.b_home, "click", button_handler(on_tmp_clicked))
 
 async def on_tmp_clicked():
-    games = await model.get_game_list()
-    logger.debug(games)
-    pairs = list(chain(*map(lambda game: (str(game["gameid"]), game["name"]), games)))
-    logger.debug(pairs)
-    dialog.do_menu("Select the game", 15, 30, 3, *pairs).call(lambda *args: logger.info(args))
+    dialog.do_inputbox("Player name to invite", 8, 30).call(lambda *args: logger.info(args))
 
 
 
@@ -114,10 +110,16 @@ def on_quit_clicked(_button):
 def on_group_clicked(_button):
     change_screen_to(view.s_in_group)
 
-@async_tryexcept
-@onlyone
-async def on_invite_clicked():
-    do_inputbox("Player to invite:", 5, 10)
+
+def on_invite_clicked(_button):
+    async def callback(exitcode, player):
+        if exitcode != 0:
+            return
+        asyncio.ensure_future(async_tryexcept(onlyone(model.invite))(player))
+        view.footer.set_text("%s has been invited." % player)
+    
+    dialog.do_inputbox("Player name to invite", 8, 30).call(
+        lambda *args: asyncio.ensure_future(callback(*args)))
 
 @async_tryexcept
 @onlyone
@@ -159,7 +161,9 @@ def update_group(group):
     model.container.group.gameid = group["gameid"]
     model.container.group.slotid = group["slotid"]
     model.container.group.partyid = group["partyid"]
+    render_group()
 
+def render_group():
     view.t_group_state.set_text("Group status %s" % model.container.group.state)
     view.p_members.contents = [
         (urwid.Columns([urwid.Text(member["name"]),
@@ -203,8 +207,12 @@ async def on_leave_clicked():
 
 @async_tryexcept
 @onlyone
-async def on_mark_as_ready_clicked():
-    raise NotImplementedError()
+async def on_ready_clicked():
+    if find(lambda member: member["id"] == model.container.user.userid,
+            model.container.group.members)["ready"]:
+        await model.mark_as_not_ready()
+    else:
+        await model.mark_as_ready()
 
 @async_tryexcept
 @onlyone
@@ -213,28 +221,80 @@ async def on_start_clicked():
 
 @model.event_handler("user", "group", "invitation recieved")
 def invited(payload):
-    pass
+    @async_tryexcept
+    @onlyone
+    async def callback(exitcode, _):
+        if exitcode != 0:
+            return
 
-@model.event_handler("user", "group", "user joined")
+        await model.join_group(payload["to"]["groupid"])
+        tasks.append(asyncio.ensure_future(model.msgqueue("group")))
+
+        group = await model.get_my_group()
+        update_group(group)
+
+        view.t_game_name.set_text("Game name: %s" % payload["to"]["gamename"])
+
+        change_navbar_to(view.n_in_group)
+        change_screen_to(view.s_in_group)
+
+    dialog.do_yesno(
+        "You have been invited by {} to join a game of {}. "
+        "Would you like to join the group ?".format(
+            payload["from"]["username"], payload["to"]["gamename"]),
+        8, 40).call(lambda *args: asyncio.ensure_future(callback(*args)))
+
+@model.event_handler("group", "group", "user joined")
 def group_user_joined(payload):
-    pass
+    model.container.group.members.append({
+        "id": payload["user"]["userid"],
+        "name": payload["user"]["username"],
+        "ready": False
+    })
 
-@model.event_handler("user", "group", "user left")
+    view.p_members.contents.append((
+        urwid.Columns([
+            urwid.Text(payload["user"]["username"]),
+            urwid.Text("not ready", align="right")]),
+        view.p_members.options()))
+    
+    logger.info("%s joined the group.", payload["user"]["username"])
+
+@model.event_handler("group", "group", "user left")
 def group_user_left(payload):
-    pass
+    model.container.group.members.remove(
+        find(lambda member: member["id"] == payload["user"]["userid"],
+             model.container.group.members))
+    render_group()
+    logger.info("%s left the group.", payload["user"]["username"])
 
-@model.event_handler("user", "group", "user is ready")
+@model.event_handler("group", "group", "user is ready")
 def group_user_is_ready(payload):
-    pass
+    find(lambda member: member["id"] == payload["user"]["userid"],
+         model.container.group.members)["ready"] = True
+    render_group()
+    logger.info("%s is ready.", payload["user"]["username"])
 
-@model.event_handler("user", "group", "user is not ready")
+@model.event_handler("group", "group", "user is not ready")
 def group_user_is_not_ready(payload):
-    pass
+    find(lambda member: member["id"] == payload["user"]["userid"],
+         model.container.group.members)["ready"] = False
+    render_group()
+    logger.info("%s is no more ready.", payload["user"]["username"])
 
-@model.event_handler("user", "group", "queue joined")
+@model.event_handler("group", "group", "queue joined")
 def group_queue_joined(payload):
     pass
 
 @model.event_handler("user", "server", "notice")
-def server_notice(notice):
-    logger.info("Notice from server: %s", notice)
+def user_server_notice(payload):
+    logger.info("Notice from server: %s", payload["notice"])
+
+@model.event_handler("group", "server", "notice")
+def group_server_notice(payload):
+    logger.info("Notice from server: %s", payload["notice"])
+
+@model.event_handler("party", "server", "notice")
+def party_server_notice(payload):
+    logger.info("Notice from server: %s", payload["notice"])
+

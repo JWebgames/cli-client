@@ -85,6 +85,18 @@ s_in_group = urwid.Pile([
     ])
 ])
 
+s_in_queue = urwid.Pile([
+    urwid.LineBox(p_members, "Group"),
+    urwid.Divider(),
+    t_game_name,
+    t_group_state,
+    urwid.Divider(),
+    urwid.Columns([
+        b_ready,
+        b_leave
+    ])
+])
+
 # Page structure
 header = urwid.Pile([
     urwid.Text("Webgames Terminal User Interface", align="center"),

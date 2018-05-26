@@ -18,7 +18,7 @@ from tools import tryexcept, async_tryexcept, find
 import webapi.storage.models
 
 logger = logging.getLogger(__name__)
-tasks = []
+tasks = {}
 
 interface_locked = False
 def onlyone(func):
@@ -61,7 +61,7 @@ def main():
 def exit_():
     if model.container.token:
         asyncio.get_event_loop().run_until_complete(model.disconnect())
-    for task in tasks:
+    for task in tasks.value():
         task.cancel()
     loop.run_until_complete(model.http.close())
     loop.close()
@@ -137,13 +137,13 @@ async def on_login_submited(login, password):
     else:
         update_group(group)
         game = await model.get_game_by_id(group["gameid"])
-        view.t_game_name.set_text("Game: %s" % game.name)
+        view.t_game_name.set_text("Game: %s" % game["name"])
 
         # Player should be able to join its old game
         raise NotImplementedError("")
     
     urwid.connect_signal(view.b_home, "click", on_home_clicked)
-    tasks.append(asyncio.ensure_future(model.msgqueue("user")))
+    tasks["user"] = asyncio.ensure_future(model.msgqueue("user"))
 
 def update_user_from_token(token_dict):
     model.container.user.userid = token_dict["uid"]
@@ -195,7 +195,7 @@ async def on_game_selected(gameid):
     game = await model.get_game_by_id(gameid)
     view.t_game_name.set_text("Game name: %s" % game["name"])
 
-    tasks.append(asyncio.ensure_future(model.msgqueue("group")))
+    tasks["group"] = asyncio.ensure_future(model.msgqueue("group"))
 
     change_navbar_to(view.n_in_group)
     change_screen_to(view.s_in_group)
@@ -203,7 +203,13 @@ async def on_game_selected(gameid):
 @async_tryexcept
 @onlyone
 async def on_leave_clicked():
-    raise NotImplementedError()
+    await model.leave_group()
+
+    logger.info("Group left.")
+    tasks["group"].cancel()
+
+    change_navbar_to(view.n_connected)
+    change_screen_to(view.s_connected_home)
 
 @async_tryexcept
 @onlyone
@@ -217,7 +223,7 @@ async def on_ready_clicked():
 @async_tryexcept
 @onlyone
 async def on_start_clicked():
-    raise NotImplementedError()
+    await model.start()
 
 @model.event_handler("user", "group", "invitation recieved")
 def invited(payload):
@@ -228,7 +234,7 @@ def invited(payload):
             return
 
         await model.join_group(payload["to"]["groupid"])
-        tasks.append(asyncio.ensure_future(model.msgqueue("group")))
+        tasks["group"] = asyncio.ensure_future(model.msgqueue("group"))
 
         group = await model.get_my_group()
         update_group(group)
@@ -266,7 +272,9 @@ def group_user_left(payload):
         find(lambda member: member["id"] == payload["user"]["userid"],
              model.container.group.members))
     render_group()
-    logger.info("%s left the group.", payload["user"]["username"])
+    logger.info("%s left the group.", payload["user"]["username"] or "A player")
+
+    change_screen_to(view.s_in_group)
 
 @model.event_handler("group", "group", "user is ready")
 def group_user_is_ready(payload):
@@ -282,9 +290,17 @@ def group_user_is_not_ready(payload):
     render_group()
     logger.info("%s is no more ready.", payload["user"]["username"])
 
+    change_screen_to(view.s_in_group)
+
 @model.event_handler("group", "group", "queue joined")
 def group_queue_joined(payload):
-    pass
+    async def coro():
+        group = await model.get_my_group()
+        update_group(group)
+
+    logger.info("Matchmaking...")
+    change_screen_to(view.s_in_queue)
+    asyncio.ensure_future(coro())
 
 @model.event_handler("user", "server", "notice")
 def user_server_notice(payload):

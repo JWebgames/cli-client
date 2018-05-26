@@ -201,3 +201,15 @@ async def mark_as_not_ready():
     async with req("delete", "v1/groups/ready") as res:
         if res.status != 204:
             await handle_error(res)
+
+@retry()
+async def leave_group():
+    async with req("delete", "v1/groups/leave") as res:
+        if res.status != 204:
+            await handle_error(res)
+
+@retry()
+async def start():
+    async with req("post", "v1/groups/start") as res:
+        if res.status != 204:
+            await handle_error(res)

@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 from functools import wraps
 from logging import getLogger, Handler
 from tenacity import TryAgain
@@ -38,7 +39,6 @@ def tryexcept(func):
     return wrapped
 
 
-
 class UrwidHandler(Handler):
     def emit(self, record):
         msg = self.format(record)
@@ -46,6 +46,7 @@ class UrwidHandler(Handler):
             view.footer.set_text(msg[:msg.index("\n")])
         except ValueError:
             view.footer.set_text(msg)
+
 
 def find(key, iterable):
     for item in iterable:

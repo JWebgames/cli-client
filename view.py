@@ -96,6 +96,13 @@ s_in_queue = urwid.Pile([
         b_leave
     ])
 ])
+s_playing = urwid.Pile([
+    urwid.LineBox(p_members, "Group"),
+    urwid.Divider(),
+    t_game_name,
+    t_group_state,
+    urwid.Divider()
+])
 
 # Page structure
 header = urwid.Pile([

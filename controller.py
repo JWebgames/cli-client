@@ -7,6 +7,7 @@ import json
 from itertools import chain
 from base64 import urlsafe_b64decode
 from functools import wraps
+from subprocess import Popen
 
 loop = asyncio.get_event_loop()
 loop.set_debug(True)
@@ -14,6 +15,7 @@ loop.set_debug(True)
 import view
 import model
 import dialog
+from config import GAMES
 from tools import tryexcept, async_tryexcept, find
 import webapi.storage.models
 
@@ -61,7 +63,7 @@ def main():
 def exit_():
     if model.container.token:
         asyncio.get_event_loop().run_until_complete(model.disconnect())
-    for task in tasks.value():
+    for task in tasks.values():
         task.cancel()
     loop.run_until_complete(model.http.close())
     loop.close()
@@ -302,6 +304,46 @@ def group_queue_joined(payload):
     change_screen_to(view.s_in_queue)
     asyncio.ensure_future(coro())
 
+@model.event_handler("group", "game", "starting")
+def group_game_is_starting(payload):
+    async def coro():
+        group = await model.get_my_group()
+        update_group(group)
+
+    logger.info("Match found !")
+    change_screen_to(view.s_playing)
+    tasks["party"] = asyncio.ensure_future(model.msgqueue("party"))
+    asyncio.ensure_future(coro())
+
+@model.event_handler("party", "game", "started")
+def party_game_started(payload):
+    logger.info("Game started on %s:%d", payload["host"], payload["ports"][0])
+    global game
+
+    args = GAMES[model.container.group.gameid]
+    args = map(lambda arg: arg.format(host=payload["host"], port=payload["ports"][0]), args)
+    try:
+        game = Popen(list(args))
+    except Exception as exc:
+        logger.exception("%s, see logs for details.", str(exc))
+
+@model.event_handler("party", "game", "over")
+def party_game_started(payload):
+    async def coro():
+        group = await model.get_my_group()
+        update_group(group)
+
+    tasks["party"].cancel()
+    if game.poll() is None:
+        logger.info("Terminating the game...")
+        game.terminate()
+    game.wait()
+
+    logger.info("Game is over, sent back to group")
+    change_navbar_to(view.n_in_group)
+    change_screen_to(view.s_in_group)
+    asyncio.ensure_future(coro())
+
 @model.event_handler("user", "server", "notice")
 def user_server_notice(payload):
     logger.info("Notice from server: %s", payload["notice"])
@@ -313,4 +355,3 @@ def group_server_notice(payload):
 @model.event_handler("party", "server", "notice")
 def party_server_notice(payload):
     logger.info("Notice from server: %s", payload["notice"])
-

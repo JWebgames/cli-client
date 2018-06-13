@@ -1,0 +1,27 @@
+aiodns==1.1.1
+aiofiles==0.3.2
+aiohttp==3.2.1
+aioredis==1.1.0
+async-timeout==3.0.0
+asyncpg==0.15.0
+attrs==18.1.0
+chardet==3.0.4
+hiredis==0.2.0
+httptools==0.0.11
+idna==2.6
+idna-ssl==1.0.1
+-e git+https://github.com/JWebgames/Webapi@f0487f591af48d583f654b30ae681809eac1d7c7#egg=julien_webapi
+multidict==4.3.1
+pycares==2.3.0
+PyJWT==1.6.1
+pytimeparse==1.1.7
+PyYAML==3.12
+sanic==0.7.0
+scrypt==0.8.6
+six==1.11.0
+tenacity==4.12.0
+ujson==1.35
+-e git+https://github.com/julien00859/urwid.git@32b9bed6c0b78e7c4ef168db66a29b7d3ecdc9f2#egg=urwid
+uvloop==0.9.1
+websockets==4.0.1
+yarl==1.2.4
